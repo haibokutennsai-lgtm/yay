@@ -4,7 +4,7 @@ import os
 from yaylib import Client
 
 EMAIL = "メール"
-PASSWORD = "パス"
+PASSWORD = "パスワード"
 
 client = Client()
 client.login(EMAIL, PASSWORD)
@@ -19,7 +19,7 @@ LIKE_FILE = "liked_posts.json"
 FOLLOW_FILE = "followed_users.json"
 
 # =====================
-# 保存データ読み込み
+# データ読み込み
 # =====================
 def load_data(file):
     if os.path.exists(file):
@@ -31,20 +31,29 @@ liked_posts = load_data(LIKE_FILE)
 followed_users = load_data(FOLLOW_FILE)
 
 # =====================
-# 保存関数
+# データ保存
 # =====================
 def save_data(file, data_set):
     with open(file, "w", encoding="utf-8") as f:
         json.dump(list(data_set), f, ensure_ascii=False, indent=2)
 
-print("BOT起動（保存付き）")
+print("BOT起動（完全版）")
 
 while True:
     try:
+
         # =====================
-        # ① いいね
+        # ① いいね処理
         # =====================
-        posts = client.get_timeline()
+        timeline = client.get_timeline()
+
+        # PostsResponse対策（ここ重要）
+        posts = getattr(timeline, "posts", None) or getattr(timeline, "data", None)
+
+        if posts is None:
+            print("timeline取得失敗")
+            time.sleep(10)
+            continue
 
         like_count = 0
 
@@ -72,9 +81,15 @@ while True:
         save_data(LIKE_FILE, liked_posts)
 
         # =====================
-        # ② フォロー
+        # ② フォロー処理
         # =====================
-        users = client.get_new_users()
+        new_users = client.get_new_users()
+        users = getattr(new_users, "users", None) or getattr(new_users, "data", None)
+
+        if users is None:
+            print("ユーザー取得失敗")
+            time.sleep(10)
+            continue
 
         follow_count = 0
 
