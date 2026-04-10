@@ -1,3 +1,114 @@
+import time
+import json
+import os
+from yaylib import Client
+
+EMAIL = "メール"
+PASSWORD = "パスワード"
+
+client = Client()
+client.login(EMAIL, PASSWORD)
+
+LIKE_LIMIT = 20
+FOLLOW_LIMIT = 10
+SLEEP_BETWEEN = 3
+CYCLE_SLEEP = 60
+
+LIKE_FILE = "liked_posts.json"
+FOLLOW_FILE = "followed_users.json"
+
+# =====================
+# データ読み込み
+# =====================
+def load_data(file):
+    if os.path.exists(file):
+        with open(file, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    return set()
+
+liked_posts = load_data(LIKE_FILE)
+followed_users = load_data(FOLLOW_FILE)
+
+# =====================
+# データ保存
+# =====================
+def save_data(file, data_set):
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(list(data_set), f, ensure_ascii=False, indent=2)
+
+print("BOT起動（いいね＋フォロー完全版）")
+
+while True:
+    try:
+
+        # =====================
+        # ① いいね処理
+        # =====================
+        timeline = client.get_timeline()
+        posts = getattr(timeline, "posts", None) or getattr(timeline, "data", None)
+
+        if posts:
+            like_count = 0
+
+            for post in posts:
+                if like_count >= LIKE_LIMIT:
+                    break
+
+                post_id = getattr(post, "id", None)
+
+                if not post_id or post_id in liked_posts:
+                    continue
+
+                try:
+                    client.like(post_id)
+                    liked_posts.add(post_id)
+
+                    print("👍 いいね:", post_id)
+                    like_count += 1
+
+                    time.sleep(SLEEP_BETWEEN)
+
+                except Exception as e:
+                    print("いいねエラー:", e)
+
+        save_data(LIKE_FILE, liked_posts)
+
+        # =====================
+        # ② フォロー処理
+        # =====================
+        new_users = client.get_new_users()
+
+        users = getattr(new_users, "users", None) or getattr(new_users, "data", None)
+
+        if users:
+            follow_count = 0
+
+            for user in users:
+                if follow_count >= FOLLOW_LIMIT:
+                    break
+
+                user_id = (
+                    getattr(user, "id", None)
+                    or getattr(user, "user_id", None)
+                    or getattr(user, "uuid", None)
+                )
+
+                if not user_id or user_id in followed_users:
+                    continue
+
+                try:
+                    client.follow(user_id)
+                    followed_users.add(user_id)
+
+                    print("➕ フォロー:", user_id)
+                    follow_count += 1
+
+                    time.sleep(SLEEP_BETWEEN)
+
+                except Exception as e:
+                    print("フォローエラー:", e)
+
+        save_data(FOLLOW_FILE, followed_users)
 
         print("1周完了、待機中...")
         time.sleep(CYCLE_SLEEP)
