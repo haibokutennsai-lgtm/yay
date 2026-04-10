@@ -1,0 +1,160 @@
+import time
+import json
+import os
+import requests
+import yaylib
+
+# =========================
+# 初期設定
+# =========================
+TOKEN = "ここにBearerトークン"
+CONFERENCE_ID = 127977045
+
+bot = yaylib.Client()
+bot.login("メール", "パスワード")
+
+headers = {
+    "Authorization": f"Bearer {TOKEN}",
+    "Origin": "https://yay.space"
+}
+
+LIKE_LIMIT = 20
+FOLLOW_LIMIT = 10
+ROOM_SLEEP = 2
+SLEEP_BETWEEN = 3
+CYCLE_SLEEP = 60
+
+LIKE_FILE = "liked_posts.json"
+FOLLOW_FILE = "followed_users.json"
+
+# =========================
+# データ管理
+# =========================
+def load_data(file):
+    if os.path.exists(file):
+        with open(file, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    return set()
+
+def save_data(file, data):
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(list(data), f, ensure_ascii=False, indent=2)
+
+liked_posts = load_data(LIKE_FILE)
+followed_users = load_data(FOLLOW_FILE)
+
+prev_users = set()
+
+# =========================
+# フォロー関数（枠用）
+# =========================
+def follow_user_api(user_id):
+    url = "https://api.yay.space/v2/follows"
+
+    try:
+        res = requests.post(
+            url,
+            headers=headers,
+            json={"user_id": user_id}
+        )
+        return res.status_code, res.text
+    except Exception as e:
+        return None, str(e)
+
+print("BOT起動（統合版）")
+
+# =========================
+# メインループ
+# =========================
+while True:
+    try:
+        like_count = 0
+        follow_count = 0
+
+        # =========================
+        # タイムライン処理
+        # =========================
+        timeline = bot.get_timeline()
+        posts = getattr(timeline, "posts", None) or getattr(timeline, "data", []) or []
+
+        for post in posts:
+            post_id = getattr(post, "id", None)
+            user = getattr(post, "user", None)
+            user_id = getattr(user, "id", None) if user else None
+
+            # いいね
+            if post_id and post_id not in liked_posts and like_count < LIKE_LIMIT:
+                try:
+                    bot.like(post_id)
+                    liked_posts.add(post_id)
+                    like_count += 1
+                    print("👍 いいね:", post_id)
+                    time.sleep(SLEEP_BETWEEN)
+                except Exception as e:
+                    print("いいねエラー:", e)
+
+            # 投稿者フォロー
+            if user_id and user_id not in followed_users and follow_count < FOLLOW_LIMIT:
+                try:
+                    bot.follow_user(user_id)
+                    followed_users.add(user_id)
+                    follow_count += 1
+                    print("➕ 投稿フォロー:", user_id)
+                    time.sleep(SLEEP_BETWEEN)
+                except Exception as e:
+                    print("フォローエラー:", e)
+
+        # =========================
+        # 枠フォロー処理
+        # =========================
+        try:
+            res = requests.get(
+                f"https://api.yay.space/v2/calls/conferences/{CONFERENCE_ID}",
+                headers=headers
+            ).json()
+
+            users = res.get("conference_call", {}).get("conference_call_users", [])
+            current_users = set()
+
+            for user in users:
+                user_id = user.get("id")
+                nickname = user.get("nickname", "unknown")
+
+                if not user_id:
+                    continue
+
+                current_users.add(user_id)
+
+                # 新規入室のみ
+                if user_id not in prev_users:
+
+                    print(f"🎧 入室: {nickname} ({user_id})")
+
+                    if user_id not in followed_users:
+                        status, text = follow_user_api(user_id)
+
+                        if status == 200:
+                            print(f"➕ 枠フォロー成功: {user_id}")
+                            followed_users.add(user_id)
+                        else:
+                            print(f"❌ 枠フォロー失敗: {status} {text}")
+
+                        time.sleep(ROOM_SLEEP)
+
+        except Exception as e:
+            print("枠取得エラー:", e)
+
+        prev_users = current_users
+
+        # =========================
+        # 保存
+        # =========================
+        save_data(LIKE_FILE, liked_posts)
+        save_data(FOLLOW_FILE, followed_users)
+
+        print("1周完了")
+        time.sleep(CYCLE_SLEEP)
+
+    except Exception as e:
+        print("メインエラー:", e)
+        time.sleep(10)
