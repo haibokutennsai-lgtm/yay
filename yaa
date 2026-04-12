@@ -1,0 +1,141 @@
+import requests
+import time
+import json
+import os
+import yaylib
+
+# ===== 設定 =====
+EMAIL = "メール"
+PASSWORD = "パスワード"
+
+API_URL = "https://api.yay.space/v2/calls/conferences/127971209"
+TOKEN = "Bearer ここにAuthorization貼る"
+
+LIKE_FILE = "liked_posts.json"
+FOLLOW_FILE = "followed_users.json"
+
+LIKE_LIMIT = 20
+FOLLOW_LIMIT = 15
+
+bot = yaylib.Client()
+bot.login(EMAIL, PASSWORD)
+
+def load_data(file):
+    if os.path.exists(file):
+        with open(file, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    return set()
+
+def save_data(file, data):
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(list(data), f)
+
+liked_posts = load_data(LIKE_FILE)
+followed_users = load_data(FOLLOW_FILE)
+
+# ===== 枠参加者 =====
+def get_room_users():
+    headers = {"Authorization": TOKEN}
+    r = requests.get(API_URL, headers=headers)
+    data = r.json()
+
+    users = []
+    for user in data.get("participants", []):
+        uid = user.get("id") or user.get("userId")
+        if uid:
+            users.append(uid)
+    return users
+
+# ===== いいねした人取得 =====
+def get_likers(post_id):
+    headers = {"Authorization": TOKEN}
+    
+    url = f"https://api.yay.space/v2/posts/{post_id}/likes"
+    r = requests.get(url, headers=headers)
+
+    users = []
+    try:
+        data = r.json()
+        for u in data.get("users", []):
+            uid = u.get("id")
+            if uid:
+                users.append(uid)
+    except:
+        pass
+
+    return users
+
+print("最強BOT起動")
+
+while True:
+    try:
+        like_count = 0
+        follow_count = 0
+
+        timeline = bot.get_timeline()
+        posts = getattr(timeline, "posts", None) or getattr(timeline, "data", []) or []
+
+        for post in posts:
+            post_id = getattr(post, "id", None)
+            user = getattr(post, "user", None)
+            user_id = getattr(user, "id", None) if user else None
+
+            # 👍 投稿いいね
+            if post_id and post_id not in liked_posts and like_count < LIKE_LIMIT:
+                try:
+                    bot.like(post_id)
+                    liked_posts.add(post_id)
+                    like_count += 1
+                    print("👍 いいね:", post_id)
+                    time.sleep(2)
+                except:
+                    pass
+
+            # ➕ 投稿者フォロー
+            if user_id and user_id not in followed_users and follow_count < FOLLOW_LIMIT:
+                try:
+                    bot.follow_user(user_id)
+                    followed_users.add(user_id)
+                    follow_count += 1
+                    print("➕ 投稿者フォロー:", user_id)
+                    time.sleep(2)
+                except:
+                    pass
+
+            # 💥 いいねした人フォロー
+            try:
+                likers = get_likers(post_id)
+
+                for uid in likers:
+                    if uid not in followed_users:
+                        bot.follow_user(uid)
+                        followed_users.add(uid)
+
+                        print("🔥 いいねした人フォロー:", uid)
+                        time.sleep(2)
+            except:
+                pass
+
+        # 🎧 枠フォロー
+        try:
+            room_users = get_room_users()
+
+            for uid in room_users:
+                if uid not in followed_users:
+                    bot.follow_user(uid)
+                    followed_users.add(uid)
+
+                    print("🎧 枠フォロー:", uid)
+                    time.sleep(3)
+        except:
+            pass
+
+        save_data(LIKE_FILE, liked_posts)
+        save_data(FOLLOW_FILE, followed_users)
+
+        print("1周完了")
+        time.sleep(30)
+
+    except Exception as e:
+        print("エラー:", e)
+        time.sleep(10)
